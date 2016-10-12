@@ -17,7 +17,10 @@ Email: 10142130151_ecnu@outlook.com
 
 char prompt[MAX_STRING] = "mysh >";
 
-int main()
+int main(int argc, char **argv);
+int handle(FILE *stream);
+
+int main(int argc, char **argv)
 {
 	while (true)
 	{
@@ -26,7 +29,10 @@ int main()
 	return 0;
 }
 
-int handle(FILE *)
+int handle(FILE *stream)
 {
+	while (TRUE)
+	{
 
+	}
 }
