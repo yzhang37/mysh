@@ -50,6 +50,7 @@ int fd[2];
 int main(int argc, char **argv)
 {
 	srand(time(0));
+	memset(Commands, 0, sizeof(Commands));
 	if (argc == 1)
 	{
 		// Interactive mode
@@ -183,6 +184,17 @@ void parse_command(char *command, int mode)
 
 void reset_cmd()
 {
+	if (curCmdIndex != 0)
+	{
+		for (int i = 0; i<curCmdIndex; ++i)
+		{
+			if (Commands[i].param != 0)
+			{
+				free(Commands[i].param);
+				Commands[i].param = 0;
+			}
+		}
+	}
 	curCmdIndex = 0;
 }
 
@@ -255,6 +267,7 @@ void run_shell()
 	}
 	close(fd[0]);
 	close(fd[1]);
+	remove(PIPE_FILE);
 }
 
 void run_command(int start, int end, const int &lastEnd)
@@ -277,7 +290,7 @@ void run_command(int start, int end, const int &lastEnd)
 
 	if (end != start)
 		dup2(fd[0], STDIN_FILENO);
-	if (end != lastEnd -1)
+	if (end != lastEnd)
 		dup2(fd[1], STDOUT_FILENO);
 	execvp(Commands[end].cmd, Commands[end].param);
 }
