@@ -20,6 +20,9 @@ Email: 10142130151_ecnu@outlook.com
 #define OUT_REDIRECT 			8
 #define OUT_REDIRECT_APPEND		16
 
+#define QUOTE 		1
+#define DQUOTE		2
+
 struct command_info
 {
 	int type;
@@ -121,20 +124,79 @@ void parse_command(char *command, int mode)
 		Commands[index].type |= PIPE;
 	char *argsList[MAX_ARGS];
 	int argCount = 0;
+
+	//now this program should deal with quotes
+	int quoteMode = 0;
+	int quoteBegin = 0;
 	for (; i < cnt; ++i)
 	{
 		if (command[i] == ' ' || i == cnt - 1)
 		{
 			if (command[i] == ' ')
+			{
+				if (quoteMode != 0)
+					continue;
 				command[i] = '\0';
-			argsList[argCount++] = command + j;
+			}
+			if (command[j] != '\0')
+			{
+				if (!quoteMode)
+					argsList[argCount++] = command + j;
+				else
+				{
+					if (command[cnt - 1] == '\"' || command[cnt-1] == '\'')
+						command[cnt-1] = '\0';
+					argsList[argCount++] = command + quoteBegin + 1;
+				}
+			}
 			
 			j = i+1;
 
 			//remove more spaces
-			while (command[j] == ' ' || command[j] == '\t')
+			while (command[j] == ' ' || command[j] == '\t') {++i; ++j;}
+		}
+		else if (command[i] == '\'')
+		{
+			switch (quoteMode)
 			{
-				++i; ++j;
+			case 0:
+				quoteMode = QUOTE;
+				quoteBegin = i;
+				break;
+			case QUOTE:
+				if (i > 0 && command[i-1] != '\\')
+				{
+					command[i] = '\0';
+					argsList[argCount++] = command + quoteBegin + 1;
+					j = i+1;
+					quoteMode = 0;
+					while (command[j] == ' ' || command[j] == '\t') {++i; ++j;}
+				}
+				break;
+			case DQUOTE:
+				break;
+			}
+		}
+		else if (command[i] == '\"')
+		{
+			switch (quoteMode)
+			{
+			case 0:
+				quoteMode = DQUOTE;
+				quoteBegin = i;
+				break;
+			case QUOTE:
+				break;
+			case DQUOTE:
+				if (i > 0 && command[i-1] != '\\')
+				{
+					command[i] = '\0';
+					argsList[argCount++] = command + quoteBegin + 1;
+					j = i+1;
+					quoteMode = 0;
+					while (command[j] == ' ' || command[j] == '\t') {++i; ++j;}
+				}
+				break;
 			}
 		}
 	}
