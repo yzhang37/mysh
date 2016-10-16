@@ -4,27 +4,11 @@ Email: 10142130151_ecnu@outlook.com
 
 */
 
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <pwd.h>
-#include <string.h>
-#include <unistd.h>
+#include "stdafx.h"
+#include "command.h"
 
 #define TRUE (-1)
 #define FALSE (0)
-
-#define MAX_ARGS (50) //the max count of args
-#define MAX_CMD (1000)
-#define MAX_GRP (100)
-#define BUFF (4096)
-
-
-
 
 char prompt[MAX_STRING] = "mysh >";
 
@@ -33,17 +17,31 @@ int handle(FILE *stream);
 
 int main(int argc, char **argv)
 {
-	while (true)
+	if (argc == 1)
 	{
-		
+		// Interactive mode
+		handle(stdin);
+	}
+	else 
+	{
+		// Batch mode
+		for (int arg_i = 1; arg_i < argc; ++arg_i)
+		{
+
+		}
 	}
 	return 0;
 }
 
 int handle(FILE *stream)
 {
+	//by default, echo is on
+	int echo = 1;
+	char prompt_info[MAX_STRING];
+	make_prompt(prompt_info);
 	while (TRUE)
 	{
-
+		if (echo)
+			puts(prompt_info);
 	}
 }
