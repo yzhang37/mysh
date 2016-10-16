@@ -5,7 +5,6 @@ Email: 10142130151_ecnu@outlook.com
 */
 
 #include "stdafx.h"
-#include "command.h"
 
 #define TRUE (-1)
 #define FALSE (0)
@@ -33,12 +32,12 @@ struct command_group
 };
 
 void deal_lf(char *);
-void parse_group (struct command_group *, char *);
+void parse_group (char *);
 void parse_command (char *, int mode);
 void make_prompt (char *);
 void read_command(char *, char *);
 void run_shell();
-void run_command(int, int);
+void run_command(int, int, const int &);
 void reset_cmd();
 int next_cmd();
 int main(int argc, char **argv);
@@ -46,9 +45,11 @@ int handle(FILE *stream);
 
 int curCmdIndex = 0;
 struct command_info Commands[MAX_CMD];
+int fd[2];
 
 int main(int argc, char **argv)
 {
+	srand(time(0));
 	if (argc == 1)
 	{
 		// Interactive mode
@@ -77,61 +78,107 @@ int handle(FILE *stream)
 		if (echo)
 			printf("%s", prompt_info);
 		fgets(command_buf, BUFF, stream);
-		command_group group[MAX_GRP];
 		deal_lf(command_buf);
-
-		printf("%s", command_buf);
+		parse_group(command_buf);
+		run_shell();
 	}
 }
 
-void parse_group(struct command_group *grp, char *buf)
+void parse_group(char *buf)
 {
 	size_t cnt = strlen(buf);
 	size_t i = 0, startPos = 0;
+	reset_cmd();
 	for (size_t i = 0; i < cnt; ++i)
 	{
 		if (buf[i] == '|' || i == cnt - 1)
 		{
-			int mode = 0;
+			int pipe = 0;
 			if (buf[i] == '|')
 			{
 				//Set EOL (End of Line)
 				buf[i] = '\0';
-				mode = 1;
+				pipe = 1;
 			}
-
+			parse_command(buf+startPos, pipe);
 			startPos = i+1;
 		}
 	}
 }
 
-void parse_command (char *command, int mode)
+void parse_command(char *command, int mode)
 {
 	size_t cnt = strlen(command);
 	size_t i = 0, j = 0;
 	while (command[i] == ' ' || command[i] == '\t')
+	{
 		++i; ++j;
+	}
 	size_t index = next_cmd();
 	Commands[index].type = 0;
 	if (mode == PIPE)
 		Commands[index].type |= PIPE;
 	char *argsList[MAX_ARGS];
-
-	for (int startX = 0; i < cnt; ++i)
+	int argCount = 0;
+	for (; i < cnt; ++i)
 	{
 		if (command[i] == ' ' || i == cnt - 1)
 		{
 			if (command[i] == ' ')
 				command[i] = '\0';
-			argsList[startX++] = command + j;
+			argsList[argCount++] = command + j;
 			
 			j = i+1;
 
 			//remove more spaces
 			while (command[j] == ' ' || command[j] == '\t')
+			{
 				++i; ++j;
+			}
 		}
 	}
+	//now we generate cmd parameters.
+	//because argsList may exists redirections, we must handle them
+	int temp = 0;
+	Commands[index].cmd = argsList[0];
+	Commands[index].param = (char **)malloc(sizeof(char *) * (argCount + 2));
+
+	if (argCount > 0)
+		Commands[index].param[temp++] = argsList[0];
+	for (i = 1; i < argCount; ++i)
+	{
+		int isredir = 0;
+		if (strlen(argsList[i]) == 1)
+		{
+			//probable: < and >
+			char c = *(argsList[i]);
+			if (c == '<' || c == '>')
+			{
+				isredir = 1;
+				//next parameters
+				c == '<'? (Commands[index].input = argsList[++i]) : (Commands[index].output = argsList[++i]);
+			}
+		}
+		else if (strlen(argsList[i]) == 2)
+		{
+			if (strcmp(argsList[i], "<<") == 0)
+			{
+				isredir = 1;
+				Commands[index].input = argsList[++i];
+			}
+			else if (strcmp(argsList[i], ">>") == 0)
+			{
+				isredir = 1;
+				Commands[index].output = argsList[++i];
+			}
+		}
+
+		if (!isredir)
+		{
+			Commands[index].param[temp++] = argsList[i];
+		}
+	}
+	Commands[index].param[temp] = (char *)0;
 }
 
 void reset_cmd()
@@ -184,4 +231,53 @@ void deal_lf(char *buf)
 			return;
 		}
 	}
+}
+
+void run_shell()
+{
+	char PIPE_FILE[MAX_STRING];
+	sprintf(PIPE_FILE, "myshpip%x.tmp", rand());
+
+	fd[0] = open(PIPE_FILE, O_CREAT|O_RDONLY, 0666);
+	fd[1] = open(PIPE_FILE, O_CREAT|O_WRONLY|O_TRUNC, 0666);
+
+	pid_t pid = fork();
+
+	switch (pid)
+	{
+		case -1:
+			perror("Failed to create process.");
+			exit(1);
+		case 0:
+			run_command(0, curCmdIndex - 1, curCmdIndex - 1);
+		default:
+			waitpid(0, NULL, 0);
+	}
+	close(fd[0]);
+	close(fd[1]);
+}
+
+void run_command(int start, int end, const int &lastEnd)
+{
+	pid_t pid;
+	if (start != end)
+	{
+		pid = fork();
+		switch (pid)
+		{
+			case -1:
+				perror("Failed to create process.");
+				exit(1);
+			case 0:
+				run_command(start, end-1, lastEnd);
+			default:
+				waitpid(0, NULL, 0);
+		}
+	}
+
+	if (end != start)
+		dup2(fd[0], STDIN_FILENO);
+	if (end != lastEnd -1)
+		dup2(fd[1], STDOUT_FILENO);
+	execvp(Commands[end].cmd, Commands[end].param);
 }
