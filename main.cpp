@@ -64,7 +64,9 @@ int main(int argc, char **argv)
 		// Batch mode
 		for (int arg_i = 1; arg_i < argc; ++arg_i)
 		{
-
+			FILE *mystdin = fopen(argv[arg_i], "r");
+			handle(mystdin);
+			fclose(mystdin);
 		}
 	}
 	return 0;
