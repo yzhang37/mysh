@@ -313,7 +313,7 @@ void deal_lf(char *buf)
 void run_shell()
 {
 	char PIPE_FILE[MAX_STRING];
-	sprintf(PIPE_FILE, "myshpip%x.tmp", rand());
+	sprintf(PIPE_FILE, ".myshpip%x.tmp", rand());
 
 	fd[0] = open(PIPE_FILE, O_CREAT|O_RDONLY, 0666);
 	fd[1] = open(PIPE_FILE, O_CREAT|O_WRONLY|O_TRUNC, 0666);
@@ -340,6 +340,9 @@ void run_command(int start, int end, const int &lastEnd)
 	pid_t pid;
 	if (start != end)
 	{
+		//first we need to detect whether 
+		//it is a internal command or not.
+		
 		pid = fork();
 		switch (pid)
 		{
