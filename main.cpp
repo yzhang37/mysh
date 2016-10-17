@@ -335,30 +335,72 @@ void run_shell()
 	remove(PIPE_FILE);
 }
 
+int checkinternal(const char *buf)
+{
+	if (strcmp(buf, "cd") == 0)
+		return 1;
+	else if (strcmp(buf, "wait") == 0)
+		return 1;
+	else if (strcmp(buf, "exit") == 0)
+		return 1;
+	else if (strcmp(buf, "quit") == 0)
+		return 1;
+	else
+		return 0;
+}
+
 void run_command(int start, int end, const int &lastEnd)
 {
-	pid_t pid;
+	pid_t pid = 0;
+	//first we assume it's not internal command
+	int isinternal = 0;
 	if (start != end)
 	{
-		//first we need to detect whether 
-		//it is a internal command or not.
-		
-		pid = fork();
-		switch (pid)
+		// first here we detect 
+		// whether there is a internal command
+		if (checkinternal(Commands[end].cmd))
 		{
-			case -1:
-				perror("Failed to create process.");
-				exit(1);
-			case 0:
-				run_command(start, end-1, lastEnd);
-			default:
-				waitpid(0, NULL, 0);
+			isinternal = 1;
+			// because it is internal cmd, we don't need to fork a new child process.
+			run_command(start, end-1, lastEnd);
 		}
+		else
+		{
+			pid = fork();
+			switch (pid)
+			{
+				case -1:
+					perror("Failed to create process.");
+					exit(1);
+				case 0:
+					run_command(start, end-1, lastEnd);
+				default:
+					waitpid(0, NULL, 0);
+			}
+		}
+		
 	}
 
 	if (end != start)
 		dup2(fd[0], STDIN_FILENO);
 	if (end != lastEnd)
 		dup2(fd[1], STDOUT_FILENO);
-	execvp(Commands[end].cmd, Commands[end].param);
+	if (isinternal == 1)
+	{
+		if (strcmp(Commands[end].cmd, "cd") == 0)
+		{
+			;
+		}
+		else if (strcmp(Commands[end].cmd, "wait") == 0)
+		{
+			;
+		}
+		else if (strcmp(Commands[end].cmd, "exit") == 0 || 
+				 strcmp(Commands[end].cmd, "quit") == 0)
+		{
+			;
+		}
+	}
+	else
+		execvp(Commands[end].cmd, Commands[end].param);
 }
