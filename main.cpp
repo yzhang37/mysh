@@ -24,6 +24,9 @@ Email: 10142130151_ecnu@outlook.com
 #define QUOTE 		1
 #define DQUOTE		2
 
+
+#define EXIT 		1
+
 struct command_info
 {
 	int type, argc;
@@ -36,22 +39,24 @@ struct command_group
 };
 
 void deal_lf(char *);
-void parse_group (char *);
+size_t parse_group (char *);
 void parse_command (char *, int mode);
 void make_prompt (char *);
 void read_command(char *, char *);
-void run_shell();
+int run_shell();
 void run_command(int, int, const int &);
 void reset_cmd();
 int next_cmd();
 int main(int argc, char **argv);
 int handle(FILE *stream);
+int checkinternal(const char *buf);
 
 int curCmdIndex = 0;
 struct command_info Commands[MAX_CMD];
 char prompt_info[MAX_STRING];
 int fd[2];
 int echo = 1;
+int ifwait = 1;
 std::set <pid_t> waitpids;
 
 int main(int argc, char **argv)
@@ -90,20 +95,36 @@ int handle(FILE *stream)
 		if (fgets(command_buf, BUFF, stream) == NULL)
 			return 1;
 		deal_lf(command_buf);
-		parse_group(command_buf);
-		run_shell();
+
+		size_t startI = 0;
+		while (TRUE)
+		{
+			size_t pos = parse_group(command_buf+startI);
+			if (pos == 0)
+				break;
+			startI += pos;
+			switch (run_shell())
+			{
+				case EXIT:
+					return EXIT;
+				default:
+					break;
+			}
+		}
 		*command_buf = '\0';
 	}
 }
 
-void parse_group(char *buf)
+size_t parse_group(char *buf)
 {
 	size_t cnt = strlen(buf);
+	if (cnt == 0) return 0;
 	size_t i = 0, startPos = 0;
+	ifwait = 1;
 	reset_cmd();
-	for (size_t i = 0; i < cnt; ++i)
+	for (; i < cnt; ++i)
 	{
-		if (buf[i] == '|' || i == cnt - 1)
+		if (buf[i] == '|' || buf[i] == '&' || i == cnt - 1)
 		{
 			int pipe = 0;
 			if (buf[i] == '|')
@@ -112,10 +133,20 @@ void parse_group(char *buf)
 				buf[i] = '\0';
 				pipe = 1;
 			}
+			else if (buf[i] == '&')
+			{
+				buf[i] = '\0';
+				ifwait = 0;
+			}
 			parse_command(buf+startPos, pipe);
+			if (buf[i] == '&')
+			{
+				return i + 1;
+			}
 			startPos = i+1;
 		}
 	}
+	return i;
 }
 
 void parse_command(char *command, int mode)
@@ -149,7 +180,9 @@ void parse_command(char *command, int mode)
 			if (command[j] != '\0')
 			{
 				if (!quoteMode)
+				{
 					argsList[argCount++] = command + j;
+				}
 				else
 				{
 					if (command[cnt - 1] == '\"' || command[cnt-1] == '\'')
@@ -211,6 +244,8 @@ void parse_command(char *command, int mode)
 	//now we generate cmd parameters.
 	//because argsList may exists redirections, we must handle them
 	int temp = 0;
+	if (index != 0 && checkinternal(argsList[0]))
+		return;
 	Commands[index].cmd = argsList[0];
 	Commands[index].param = (char **)malloc(sizeof(char *) * (argCount + 2));
 
@@ -316,12 +351,12 @@ void deal_lf(char *buf)
 	}
 }
 
-void run_shell()
+int run_shell()
 {
 	char PIPE_FILE[MAX_STRING];
 	sprintf(PIPE_FILE, ".myshpip%x.tmp", rand());
 
-	for (int i = 0; i < curCmdIndex; ++i)
+	for (int i = 0; i < 1; ++i)
 	{
 		if (strcmp(Commands[i].cmd, "cd") == 0)
 		{
@@ -335,11 +370,24 @@ void run_shell()
 				}
 			}
 			make_prompt(prompt_info);
+			if (curCmdIndex == 1)
+				return 0;
 		}
 		else if (strcmp(Commands[i].cmd, "exit") == 0 ||
 				 strcmp(Commands[i].cmd, "quit") == 0)
 		{
-
+			return 1;
+		}
+		else if (strcmp(Commands[i].cmd, "wait") == 0)
+		{
+			std::set <pid_t>::iterator it, oit;
+			for (it = waitpids.begin(); it != waitpids.end();)
+			{
+				pid_t value = *it;
+				waitpid(value, NULL, 0);
+				it++;
+				waitpids.erase(value);
+			}
 		}
 	}
 
@@ -355,12 +403,20 @@ void run_shell()
 			exit(1);
 		case 0:
 			run_command(0, curCmdIndex - 1, curCmdIndex - 1);
+			exit(0);
 		default:
-			waitpid(0, NULL, 0);
+			if (ifwait)
+				wait(NULL);
+			else
+			{
+				if (!waitpids.count(pid))
+					waitpids.insert(pid);
+			}
 	}
 	close(fd[0]);
 	close(fd[1]);
 	remove(PIPE_FILE);
+	return 0;
 }
 
 int checkinternal(const char *buf)
@@ -403,7 +459,7 @@ void run_command(int start, int end, const int &lastEnd)
 				case 0:
 					run_command(start, end-1, lastEnd);
 				default:
-					waitpid(0, NULL, 0);
+					wait(NULL);
 			}
 		}
 		
@@ -415,9 +471,9 @@ void run_command(int start, int end, const int &lastEnd)
 		dup2(fd[1], STDOUT_FILENO);
 	if (isinternal == 1)
 	{
-		if (strcmp(Commands[end].cmd, "cd") == 0)
+		if (strcmp(Commands[end].cmd, "cd") == 0 && end != start)
 		{
-			;
+			printf("Invaild cd parameter.\n");
 		}
 		else if (strcmp(Commands[end].cmd, "wait") == 0)
 		{
