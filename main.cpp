@@ -26,7 +26,7 @@ Email: 10142130151_ecnu@outlook.com
 
 struct command_info
 {
-	int type;
+	int type, argc;
 	char *input, *output, *cmd, **param;
 };
 
@@ -49,7 +49,10 @@ int handle(FILE *stream);
 
 int curCmdIndex = 0;
 struct command_info Commands[MAX_CMD];
+char prompt_info[MAX_STRING];
 int fd[2];
+int echo = 1;
+std::set <pid_t> waitpids;
 
 int main(int argc, char **argv)
 {
@@ -58,11 +61,13 @@ int main(int argc, char **argv)
 	if (argc == 1)
 	{
 		// Interactive mode
+		echo = 1;
 		handle(stdin);
 	}
 	else 
 	{
 		// Batch mode
+		echo = 0;
 		for (int arg_i = 1; arg_i < argc; ++arg_i)
 		{
 			FILE *mystdin = fopen(argv[arg_i], "r");
@@ -76,18 +81,18 @@ int main(int argc, char **argv)
 int handle(FILE *stream)
 {
 	//by default, echo is on
-	int echo = 1;
-	char prompt_info[MAX_STRING];
 	char command_buf[BUFF];
 	make_prompt(prompt_info);
 	while (TRUE)
 	{
 		if (echo)
 			printf("%s", prompt_info);
-		fgets(command_buf, BUFF, stream);
+		if (fgets(command_buf, BUFF, stream) == NULL)
+			return 1;
 		deal_lf(command_buf);
 		parse_group(command_buf);
 		run_shell();
+		*command_buf = '\0';
 	}
 }
 
@@ -245,6 +250,7 @@ void parse_command(char *command, int mode)
 		}
 	}
 	Commands[index].param[temp] = (char *)0;
+	Commands[index].argc = temp;
 }
 
 void reset_cmd()
@@ -314,6 +320,28 @@ void run_shell()
 {
 	char PIPE_FILE[MAX_STRING];
 	sprintf(PIPE_FILE, ".myshpip%x.tmp", rand());
+
+	for (int i = 0; i < curCmdIndex; ++i)
+	{
+		if (strcmp(Commands[i].cmd, "cd") == 0)
+		{
+			if (Commands[i].argc==1)
+				chdir(getenv("HOME"));
+			else
+			{
+				if (chdir(Commands[i].param[1]) == -1)
+				{
+					printf("%s: Path doesn't exists.\n", Commands[i].param[1]);
+				}
+			}
+			make_prompt(prompt_info);
+		}
+		else if (strcmp(Commands[i].cmd, "exit") == 0 ||
+				 strcmp(Commands[i].cmd, "quit") == 0)
+		{
+
+		}
+	}
 
 	fd[0] = open(PIPE_FILE, O_CREAT|O_RDONLY, 0666);
 	fd[1] = open(PIPE_FILE, O_CREAT|O_WRONLY|O_TRUNC, 0666);
