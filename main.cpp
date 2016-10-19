@@ -85,6 +85,7 @@ void closeFile(int &fileno)
 
 int main(int argc, char **argv)
 {
+	//signal(SIGCHLD,SIG_IGN);
 	sprintf(PIPE_FILE, ".myshpip%x.tmp", rand());
 	srand(time(0));
 	memset(Commands, 0, sizeof(Commands));
@@ -433,7 +434,10 @@ int run_shell()
 				waitpid(value, NULL, 0);
 				it++;
 				waitpids.erase(value);
+				closeFile(fd[REDIRECT_IN]);
+				closeFile(fd[REDIRECT_OUT]);
 			}
+			return 0;
 		}
 	}
 	//OPEN TWO FILE_NUMBER
@@ -445,13 +449,13 @@ int run_shell()
 		exit(1);
 	case 0:
 		run_command(0, curCmdIndex - 1, curCmdIndex - 1);
-		closeFile(fd[REDIRECT_IN]);
-		//close the last possible redirection out file.
-		closeFile(fd[REDIRECT_OUT]);
-		exit(0);
 	default:
 		if (ifwait)
+		{
 			wait(NULL);
+			closeFile(fd[REDIRECT_IN]);
+			closeFile(fd[REDIRECT_OUT]);
+		}
 		else
 		{
 			if (!waitpids.count(pid))
@@ -486,6 +490,8 @@ void run_command(int start, int end, const int &lastEnd)
 				exit(1);
 			case 0:
 				run_command(start, end - 1, lastEnd);
+			default:
+				wait(NULL);
 				if (end == start + 1)
 				{
 					//close the possible redirect in file.
@@ -493,8 +499,6 @@ void run_command(int start, int end, const int &lastEnd)
 				}
 				//close the last possible redirection out file.
 				closeFile(fd[REDIRECT_OUT]);
-			default:
-				wait(NULL);
 			}
 		}
 	}
