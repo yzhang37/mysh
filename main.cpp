@@ -25,7 +25,14 @@ Email: 10142130151_ecnu@outlook.com
 #define DQUOTE		2
 
 
-#define EXIT 		1
+#define EXIT 			1
+
+#define PIPE_IN			0
+#define PIPE_OUT		1
+#define REDIRECT_IN		2
+#define REDIRECT_OUT	3
+#define INFILEPARAM O_CREAT | O_RDONLY, 0666
+#define OUTFILEPARAM O_CREAT | O_WRONLY | O_TRUNC, 0666
 
 struct command_info
 {
@@ -50,26 +57,46 @@ int next_cmd();
 int main(int argc, char **argv);
 int handle(FILE *stream);
 int checkinternal(const char *buf);
+void endstream();
+void closeFile(int &fileno);
 
 int curCmdIndex = 0;
 struct command_info Commands[MAX_CMD];
 char prompt_info[MAX_STRING];
-int fd[2];
+int fd[4] = {0} ;
+//fd[0]: PIPE IN
+//fd[1]: PIPE OUT
+//fd[2]: redirection in
+//fd[3]: redircetion out
 int echo = 1;
 int ifwait = 1;
 std::set <pid_t> waitpids;
+char PIPE_FILE[MAX_STRING];
+
+
+void closeFile(int &fileno)
+{
+	if (fileno != 0)
+	{
+		close(fileno);
+		fileno = 0;
+	}
+}
 
 int main(int argc, char **argv)
 {
+	sprintf(PIPE_FILE, ".myshpip%x.tmp", rand());
 	srand(time(0));
 	memset(Commands, 0, sizeof(Commands));
+	fd[PIPE_IN] = open(PIPE_FILE, O_CREAT | O_RDONLY, 0666);
+	fd[PIPE_OUT] = open(PIPE_FILE, O_CREAT | O_WRONLY | O_TRUNC, 0666);
 	if (argc == 1)
 	{
 		// Interactive mode
 		echo = 1;
 		handle(stdin);
 	}
-	else 
+	else
 	{
 		// Batch mode
 		echo = 0;
@@ -80,7 +107,15 @@ int main(int argc, char **argv)
 			fclose(mystdin);
 		}
 	}
+	endstream();
 	return 0;
+}
+
+void endstream()
+{
+	closeFile(fd[PIPE_IN]);
+	closeFile(fd[PIPE_OUT]);
+	remove(PIPE_FILE);
 }
 
 int handle(FILE *stream)
@@ -99,16 +134,16 @@ int handle(FILE *stream)
 		size_t startI = 0;
 		while (TRUE)
 		{
-			size_t pos = parse_group(command_buf+startI);
+			size_t pos = parse_group(command_buf + startI);
 			if (pos == 0)
 				break;
 			startI += pos;
 			switch (run_shell())
 			{
-				case EXIT:
-					return EXIT;
-				default:
-					break;
+			case EXIT:
+				return EXIT;
+			default:
+				break;
 			}
 		}
 		*command_buf = '\0';
@@ -138,12 +173,12 @@ size_t parse_group(char *buf)
 				buf[i] = '\0';
 				ifwait = 0;
 			}
-			parse_command(buf+startPos, pipe);
+			parse_command(buf + startPos, pipe);
 			if (buf[i] == '&')
 			{
 				return i + 1;
 			}
-			startPos = i+1;
+			startPos = i + 1;
 		}
 	}
 	return i;
@@ -158,7 +193,7 @@ void parse_command(char *command, int mode)
 		++i; ++j;
 	}
 	size_t index = next_cmd();
-	Commands[index].type = 0;
+	memset(Commands+index, 0, sizeof(command_info));
 	if (mode == PIPE)
 		Commands[index].type |= PIPE;
 	char *argsList[MAX_ARGS];
@@ -185,13 +220,13 @@ void parse_command(char *command, int mode)
 				}
 				else
 				{
-					if (command[cnt - 1] == '\"' || command[cnt-1] == '\'')
-						command[cnt-1] = '\0';
+					if (command[cnt - 1] == '\"' || command[cnt - 1] == '\'')
+						command[cnt - 1] = '\0';
 					argsList[argCount++] = command + quoteBegin + 1;
 				}
 			}
-			
-			j = i+1;
+
+			j = i + 1;
 
 			//remove more spaces
 			while (command[j] == ' ' || command[j] == '\t') {++i; ++j;}
@@ -205,11 +240,11 @@ void parse_command(char *command, int mode)
 				quoteBegin = i;
 				break;
 			case QUOTE:
-				if (i > 0 && command[i-1] != '\\')
+				if (i > 0 && command[i - 1] != '\\')
 				{
 					command[i] = '\0';
 					argsList[argCount++] = command + quoteBegin + 1;
-					j = i+1;
+					j = i + 1;
 					quoteMode = 0;
 					while (command[j] == ' ' || command[j] == '\t') {++i; ++j;}
 				}
@@ -229,11 +264,11 @@ void parse_command(char *command, int mode)
 			case QUOTE:
 				break;
 			case DQUOTE:
-				if (i > 0 && command[i-1] != '\\')
+				if (i > 0 && command[i - 1] != '\\')
 				{
 					command[i] = '\0';
 					argsList[argCount++] = command + quoteBegin + 1;
-					j = i+1;
+					j = i + 1;
 					quoteMode = 0;
 					while (command[j] == ' ' || command[j] == '\t') {++i; ++j;}
 				}
@@ -262,7 +297,7 @@ void parse_command(char *command, int mode)
 			{
 				isredir = 1;
 				//next parameters
-				c == '<'? (Commands[index].input = argsList[++i]) : (Commands[index].output = argsList[++i]);
+				c == '<' ? (Commands[index].input = argsList[++i]) : (Commands[index].output = argsList[++i]);
 			}
 		}
 		else if (strlen(argsList[i]) == 2)
@@ -292,7 +327,7 @@ void reset_cmd()
 {
 	if (curCmdIndex != 0)
 	{
-		for (int i = 0; i<curCmdIndex; ++i)
+		for (int i = 0; i < curCmdIndex; ++i)
 		{
 			if (Commands[i].param != 0)
 			{
@@ -309,6 +344,20 @@ int next_cmd()
 	return curCmdIndex++;
 }
 
+int checkinternal(const char *buf)
+{
+	if (strcmp(buf, "cd") == 0)
+		return 1;
+	else if (strcmp(buf, "wait") == 0)
+		return 1;
+	else if (strcmp(buf, "exit") == 0)
+		return 1;
+	else if (strcmp(buf, "quit") == 0)
+		return 1;
+	else
+		return 0;
+}
+
 void make_prompt(char *prompt)
 {
 	char userinfo[MAX_STRING], cwd[MAX_STRING];
@@ -321,8 +370,8 @@ void make_prompt(char *prompt)
 		strcpy(userinfo, "unknown");
 	}
 
-	if (strlen(cwd)<strlen(pwd->pw_dir) ||
-		strncmp(cwd, pwd->pw_dir, strlen(pwd->pw_dir)))
+	if (strlen(cwd) < strlen(pwd->pw_dir) ||
+	        strncmp(cwd, pwd->pw_dir, strlen(pwd->pw_dir)))
 	{
 		sprintf(prompt, "%s@%s:%s", pwd->pw_name, userinfo, cwd);
 	}
@@ -331,21 +380,21 @@ void make_prompt(char *prompt)
 		sprintf(prompt, "%s@%s:~%s", pwd->pw_name, userinfo, cwd + strlen(pwd->pw_dir));
 	}
 
-	if (getuid() == 0) 
-		sprintf(prompt+strlen(prompt), "# ");
+	if (getuid() == 0)
+		sprintf(prompt + strlen(prompt), "# ");
 	else
-		sprintf(prompt+strlen(prompt), "$ ");
+		sprintf(prompt + strlen(prompt), "$ ");
 }
 
 void deal_lf(char *buf)
 {
 	size_t i = 0;
 	unsigned char c;
-	while ((c=buf[i++]) != '\0')
+	while ((c = buf[i++]) != '\0')
 	{
 		if (c == '\n')
 		{
-			buf[i-1] = '\0';
+			buf[i - 1] = '\0';
 			return;
 		}
 	}
@@ -353,14 +402,11 @@ void deal_lf(char *buf)
 
 int run_shell()
 {
-	char PIPE_FILE[MAX_STRING];
-	sprintf(PIPE_FILE, ".myshpip%x.tmp", rand());
-
 	for (int i = 0; i < 1; ++i)
 	{
 		if (strcmp(Commands[i].cmd, "cd") == 0)
 		{
-			if (Commands[i].argc==1)
+			if (Commands[i].argc == 1)
 				chdir(getenv("HOME"));
 			else
 			{
@@ -374,7 +420,7 @@ int run_shell()
 				return 0;
 		}
 		else if (strcmp(Commands[i].cmd, "exit") == 0 ||
-				 strcmp(Commands[i].cmd, "quit") == 0)
+		         strcmp(Commands[i].cmd, "quit") == 0)
 		{
 			return 1;
 		}
@@ -390,47 +436,29 @@ int run_shell()
 			}
 		}
 	}
-
-	fd[0] = open(PIPE_FILE, O_CREAT|O_RDONLY, 0666);
-	fd[1] = open(PIPE_FILE, O_CREAT|O_WRONLY|O_TRUNC, 0666);
-
+	//OPEN TWO FILE_NUMBER
 	pid_t pid = fork();
-
 	switch (pid)
 	{
-		case -1:
-			perror("Failed to create process.");
-			exit(1);
-		case 0:
-			run_command(0, curCmdIndex - 1, curCmdIndex - 1);
-			exit(0);
-		default:
-			if (ifwait)
-				wait(NULL);
-			else
-			{
-				if (!waitpids.count(pid))
-					waitpids.insert(pid);
-			}
+	case -1:
+		perror("Failed to create process.");
+		exit(1);
+	case 0:
+		run_command(0, curCmdIndex - 1, curCmdIndex - 1);
+		closeFile(fd[REDIRECT_IN]);
+		//close the last possible redirection out file.
+		closeFile(fd[REDIRECT_OUT]);
+		exit(0);
+	default:
+		if (ifwait)
+			wait(NULL);
+		else
+		{
+			if (!waitpids.count(pid))
+				waitpids.insert(pid);
+		}
 	}
-	close(fd[0]);
-	close(fd[1]);
-	remove(PIPE_FILE);
 	return 0;
-}
-
-int checkinternal(const char *buf)
-{
-	if (strcmp(buf, "cd") == 0)
-		return 1;
-	else if (strcmp(buf, "wait") == 0)
-		return 1;
-	else if (strcmp(buf, "exit") == 0)
-		return 1;
-	else if (strcmp(buf, "quit") == 0)
-		return 1;
-	else
-		return 0;
 }
 
 void run_command(int start, int end, const int &lastEnd)
@@ -440,35 +468,57 @@ void run_command(int start, int end, const int &lastEnd)
 	int isinternal = 0;
 	if (start != end)
 	{
-		// first here we detect 
+		// first here we detect
 		// whether there is a internal command
 		if (checkinternal(Commands[end].cmd))
 		{
 			isinternal = 1;
 			// because it is internal cmd, we don't need to fork a new child process.
-			run_command(start, end-1, lastEnd);
+			run_command(start, end - 1, lastEnd);
 		}
 		else
 		{
 			pid = fork();
 			switch (pid)
 			{
-				case -1:
-					perror("Failed to create process.");
-					exit(1);
-				case 0:
-					run_command(start, end-1, lastEnd);
-				default:
-					wait(NULL);
+			case -1:
+				perror("Failed to create process.");
+				exit(1);
+			case 0:
+				run_command(start, end - 1, lastEnd);
+				if (end == start + 1)
+				{
+					//close the possible redirect in file.
+					closeFile(fd[REDIRECT_IN]);
+				}
+				//close the last possible redirection out file.
+				closeFile(fd[REDIRECT_OUT]);
+			default:
+				wait(NULL);
 			}
 		}
-		
 	}
 
+	//if this program is not the first program?
 	if (end != start)
-		dup2(fd[0], STDIN_FILENO);
+		dup2(fd[PIPE_IN], STDIN_FILENO);
+	else
+	{
+		if (Commands[start].input != NULL)
+		{
+			fd[REDIRECT_IN] = open(Commands[start].input, INFILEPARAM);
+			dup2(fd[REDIRECT_IN], STDIN_FILENO);
+		}
+	}
+
+	if (Commands[end].output != NULL)
+	{
+		fd[REDIRECT_OUT] = open(Commands[end].output, OUTFILEPARAM);
+		dup2(fd[REDIRECT_OUT], STDOUT_FILENO);
+	}
+
 	if (end != lastEnd)
-		dup2(fd[1], STDOUT_FILENO);
+		dup2(fd[PIPE_OUT], STDOUT_FILENO);
 	if (isinternal == 1)
 	{
 		if (strcmp(Commands[end].cmd, "cd") == 0 && end != start)
@@ -479,12 +529,13 @@ void run_command(int start, int end, const int &lastEnd)
 		{
 			;
 		}
-		else if (strcmp(Commands[end].cmd, "exit") == 0 || 
-				 strcmp(Commands[end].cmd, "quit") == 0)
+		else if (strcmp(Commands[end].cmd, "exit") == 0 ||
+		         strcmp(Commands[end].cmd, "quit") == 0)
 		{
 			;
 		}
 	}
 	else
 		execvp(Commands[end].cmd, Commands[end].param);
+		perror(Commands[end].cmd);
 }
